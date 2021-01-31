@@ -1,0 +1,23 @@
+[package]
+name = "condey"
+version = "0.1.0"
+authors = ["Marcin Pajkowski <marcin.pajkowski@gmail.com>"]
+edition = "2018"
+
+[[example]]
+name = "app"
+path = "examples/app.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "0.14", features = ["full"] }
+http = "0.2"
+matchit = "0.2.0"
+percent-encoding = "2.1.0"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-futures = "0.2.4"
+
+[dev-dependencies]
+tracing-subscriber = "0.2.0"
