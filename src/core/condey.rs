@@ -1,19 +1,32 @@
-use anyhow::{anyhow, Result};
-use std::{
-    collections::HashMap,
-    convert::{Infallible, TryFrom},
-    net::SocketAddr,
-    sync::Arc,
-};
-
+use super::{handler::Handler, route::Route};
 use http::{Method, Request, Response};
 use hyper::{
     service::{make_service_fn, service_fn},
     Body, Server,
 };
 use matchit::Node;
+use std::{
+    collections::HashMap,
+    convert::{Infallible, TryFrom},
+    sync::Arc,
+};
+use thiserror::Error;
+use tokio::net::{lookup_host, ToSocketAddrs};
 
-use super::handler::Handler;
+#[derive(Debug, Error)]
+pub enum ServerError {
+    #[error("Mount paths are corruputed")]
+    MountPathError,
+
+    #[error("I/O error occurred: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Socket address not resolved")]
+    NotResolvedError,
+
+    #[error("Runtime error: {0}")]
+    RuntimeError(#[from] hyper::Error),
+}
 
 fn request_span(method: &Method, path: &str) -> tracing::Span {
     let span = tracing::info_span!(
@@ -27,6 +40,33 @@ fn request_span(method: &Method, path: &str) -> tracing::Span {
 
 async fn condey_svc(
     condey_service: Arc<CondeyService>,
+    mut req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
+    let path = req.uri().path().trim_end_matches('/');
+    let method = req.method();
+
+    let span = request_span(method, path);
+    let _ = span.enter();
+
+    let response = match condey_service
+        .routes
+        .get(req.method())
+        .and_then(|node| node.match_path(path).ok())
+    {
+        Some(lookup) => {
+            req.extensions_mut().insert(lookup.params);
+            let lookup = lookup.value.clone();
+
+            return Ok(lookup.handle_request(req).await);
+        }
+        None => "unmatched :(",
+    };
+
+    Ok(Response::new(format!("{}\n", response).into()))
+}
+
+async fn old_condey_svc(
+    condey_service: Arc<CondeyService>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path().trim_end_matches('/');
@@ -36,7 +76,7 @@ async fn condey_svc(
     let _ = span.enter();
 
     let response = match condey_service
-        .handlers
+        .routes
         .get(req.method())
         .and_then(|node| node.match_path(path).ok())
     {
@@ -62,30 +102,29 @@ async fn condey_svc(
     Ok(Response::new(format!("{}\n", response).into()))
 }
 
-#[derive(Debug)]
 pub struct Condey {
-    handlers: Vec<Handler>,
+    routes: Vec<Route>,
 }
 
 impl Condey {
     pub fn init() -> Self {
-        Condey { handlers: vec![] }
+        Condey { routes: vec![] }
     }
 
-    pub fn mount(mut self, prefix: &str, paths: Vec<Handler>) -> Self {
-        paths.into_iter().for_each(|mut handler| {
-            handler.path = format!("{}/{}", prefix, handler.path.trim_start_matches('/'));
-            self.handlers.push(handler);
+    pub fn mount(mut self, prefix: &str, paths: Vec<Route>) -> Self {
+        paths.into_iter().for_each(|mut route| {
+            route.path = format!("{}/{}", prefix, route.path.trim_start_matches('/'));
+            self.routes.push(route);
         });
 
         self
     }
 
-    pub async fn serve(self) -> Result<()> {
-        //let span = tracing::info_span!("condey");
-        //let _ = span.enter();
-        // We'll bind to 127.0.0.1:3000
-        let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    pub async fn listen_at(self, addr: impl ToSocketAddrs) -> Result<(), ServerError> {
+        let addr = lookup_host(addr)
+            .await?
+            .next()
+            .ok_or(ServerError::NotResolvedError)?;
 
         let condey_service = CondeyService::try_from(self)?;
         let condey_service = Arc::new(condey_service);
@@ -101,31 +140,32 @@ impl Condey {
 
         let server = Server::bind(&addr).serve(make_svc);
 
-        server.await.map(|_| ()).map_err(|err| anyhow!(err))
+        server.await.map(|_| ()).map_err(ServerError::RuntimeError)
     }
 }
 
 struct CondeyService {
-    handlers: HashMap<Method, Node<String>>,
+    routes: HashMap<Method, Node<Box<dyn Handler + Send + Sync + 'static>>>,
 }
 
 impl TryFrom<Condey> for CondeyService {
-    type Error = anyhow::Error;
+    type Error = ServerError;
 
     fn try_from(condey: Condey) -> Result<Self, Self::Error> {
         // TODO: matchit should provide some Result<T,E> API
-        let handlers_unchecked = condey.handlers;
-        let handlers = std::panic::catch_unwind(move || {
-            let mut handlers: HashMap<_, Node<_>> = HashMap::new();
-            handlers_unchecked.into_iter().for_each(|handler| {
-                tracing::info!("mounting route: {} {}", handler.method, handler.path);
-                let node = handlers.entry(handler.method).or_default();
-                node.insert(&handler.path, handler.cb);
-            });
-            handlers
-        })
-        .map_err(|_| anyhow!("Mount paths are corrupted"))?;
+        let routes_unchecked = condey.routes;
+        let routes = {
+            let mut routes: HashMap<_, Node<_>> = HashMap::new();
 
-        Ok(Self { handlers })
+            routes_unchecked.into_iter().for_each(|route| {
+                tracing::info!("mounting route: {} {}", route.method, route.path);
+                let node = routes.entry(route.method).or_default();
+                node.insert(&route.path, route.handler);
+            });
+
+            routes
+        };
+
+        Ok(Self { routes })
     }
 }
