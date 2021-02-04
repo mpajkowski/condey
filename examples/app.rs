@@ -1,23 +1,32 @@
-use std::marker::PhantomData;
-
 use anyhow::Result;
-use condey::{Condey, Extract, Fn0, Fn1, Handler, Path, Request};
-use condey::{Response, Route};
-use http::method::Method;
-use hyper::Body;
+use condey::Route;
+use condey::{http::Method, Json};
+use condey::{Condey, Fn0, Fn1, Path};
+use serde::Serialize;
 
-async fn root_callback() -> Response<Vec<u8>> {
-    Response::new(hyper::Response::new("Hello!".into()))
+async fn root_callback() -> String {
+    "Hello!".into()
 }
 
-async fn id_callback(Path((p1,)): Path<(String,)>) -> Response<Body> {
-    Response::new(hyper::Response::new(format!("extracted: {}", p1).into()))
+async fn id_callback(Path((p1,)): Path<(String,)>) -> String {
+    format!("extracted: {}", p1)
 }
 
-async fn assignments_callback(Path((p1, p2)): Path<(String, String)>) -> Response<Body> {
-    Response::new(hyper::Response::new(
-        format!("extracted: {} and {}", p1, p2).into(),
-    ))
+async fn assignments_callback(Path((p1, p2)): Path<(String, String)>) -> String {
+    format!("extracted: {} and {}", p1, p2)
+}
+
+#[derive(Debug, Serialize)]
+pub struct SendMeJson {
+    foo: String,
+    bar: u32,
+}
+
+async fn send_me_json() -> Json<SendMeJson> {
+    Json(SendMeJson {
+        foo: "Foo".into(),
+        bar: 42,
+    })
 }
 
 #[tokio::main]
@@ -37,6 +46,7 @@ async fn main() -> Result<()> {
             "/employees/:id/assignments/:assignment_id",
             Fn1::from(assignments_callback),
         ),
+        Route::new(Method::GET, "/json_heaven", Fn0::from(send_me_json)),
     ];
 
     Condey::init()

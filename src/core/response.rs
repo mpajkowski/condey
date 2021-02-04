@@ -1,35 +1,57 @@
-use std::marker::PhantomData;
+use crate::http::{response::Builder, Response as HttpResponse};
+use hyper::{Body, StatusCode};
+use serde::Serialize;
 
-use http::Method;
-use http::Response as HttpResponse;
-use hyper::Body;
+use crate::Request;
 
-pub struct Response<T>(pub HttpResponse<Body>, pub PhantomData<T>);
+#[async_trait::async_trait]
+pub trait Responder {
+    async fn respond_to(self, req: &Request) -> Response;
+}
 
-impl<T> Response<T> {
-    pub fn new(r: HttpResponse<Body>) -> Self {
-        Self(r, PhantomData)
+pub type Response = HttpResponse<Body>;
+
+#[async_trait::async_trait]
+impl Responder for Response {
+    async fn respond_to(self, _: &Request) -> Response {
+        self
     }
 }
 
-impl<T> Into<HttpResponse<Body>> for Response<T> {
-    fn into(self) -> HttpResponse<Body> {
-        self.0
+#[async_trait::async_trait]
+impl Responder for String {
+    async fn respond_to(self, _: &Request) -> Response {
+        Builder::new()
+            .status(StatusCode::OK)
+            .header(crate::http::header::CONTENT_TYPE, "text/plain")
+            .body(self.into())
+            .unwrap()
     }
 }
 
-#[derive(Debug)]
-pub struct BodyDescription {
-    method: Method,
-    path: String,
+#[async_trait::async_trait]
+impl Responder for Vec<u8> {
+    async fn respond_to(self, _: &Request) -> Response {
+        Builder::new()
+            .status(StatusCode::OK)
+            .header(
+                crate::http::header::CONTENT_TYPE,
+                "application/octet-stream",
+            )
+            .body(self.into())
+            .unwrap()
+    }
 }
 
-pub trait IntoBody {
-    fn into_body(self) -> Body;
-}
+pub struct Json<T>(pub T);
 
-impl<T: Into<Body>> IntoBody for T {
-    fn into_body(self) -> Body {
-        T::into(self)
+#[async_trait::async_trait]
+impl<T: Serialize + Send> Responder for Json<T> {
+    async fn respond_to(self, _: &Request) -> Response {
+        Builder::new()
+            .status(StatusCode::OK)
+            .header(crate::http::header::CONTENT_TYPE, "application/json")
+            .body(serde_json::to_vec(&self.0).unwrap().into())
+            .unwrap()
     }
 }

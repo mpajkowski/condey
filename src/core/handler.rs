@@ -1,7 +1,7 @@
 use std::{future::Future, marker::PhantomData, pin::Pin};
 
-use super::{extract::Extract, response::IntoBody, Request, Response};
-use http::Response as HttpResponse;
+use super::{extract::Extract, Request, Responder};
+use crate::http::Response as HttpResponse;
 use hyper::Body;
 
 pub trait Handler {
@@ -26,9 +26,9 @@ macro_rules! handler_for_async_fn {
 
         impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* R, Fun, Fut > Handler for $f<$($t,)* R, Fun, Fut>
         where
-            R: IntoBody + Send + Sync + 'static,
+            R: Responder + Send + Sync + 'static,
             Fun: Fn($($t),*) -> Fut + Send + Sync + Copy + 'static,
-            Fut: Future<Output = Response<R>> + Send + Sync + 'static,
+            Fut: Future<Output = R> + Send + Sync + 'static,
         {
             #[allow(unused)]
             fn handle_request(&self, request: Request) -> Pin<Box<dyn Future<Output = HttpResponse<Body>> + Send>> {
@@ -39,18 +39,16 @@ macro_rules! handler_for_async_fn {
                     )*
 
                     let result = (fun)($($p,)*).await;
-                    let body = result.0.into_body();
-
-                    HttpResponse::new(body)
+                    result.respond_to(&request).await
                 })
             }
         }
 
         impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* R, Fun, Fut> From<Fun> for $f<$($t,)* R, Fun, Fut>
         where
-            R: IntoBody + Send + Sync + 'static,
+            R: Responder + Send + Sync + 'static,
             Fun: Fn($($t),*) -> Fut + Copy + 'static,
-            Fut: Future<Output = Response<R>> + 'static {
+            Fut: Future<Output = R> + 'static {
             fn from(fun: Fun) -> Self {
                 Self {
                     function: fun,
@@ -104,7 +102,7 @@ handler_for_async_fn!(
 
 #[cfg(test)]
 mod test {
-    use crate::Path;
+    use crate::{Handler, Path, Response};
 
     use super::*;
 
@@ -112,7 +110,7 @@ mod test {
 
     #[test]
     fn accept_handler_test() {
-        async fn foo(Path((p1,)): Path<(String,)>) -> Response<Vec<u8>> {
+        async fn foo(Path((p1,)): Path<(String,)>) -> Response {
             todo!()
         }
 

@@ -11,5 +11,5 @@ pub use extract::Extract;
 pub use extract::Path;
 pub use handler::Handler;
 pub use request::Request;
-pub use response::Response;
+pub use response::{Responder, Response};
 pub use route::Route;

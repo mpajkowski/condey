@@ -1,6 +1,7 @@
 use super::{handler::Handler, route::Route};
-use http::{Method, Request, Response};
+use crate::http::{Method, Request, Response};
 use hyper::{
+    header::SERVER,
     service::{make_service_fn, service_fn},
     Body, Server,
 };
@@ -55,48 +56,17 @@ async fn condey_svc(
     {
         Some(lookup) => {
             req.extensions_mut().insert(lookup.params);
-            let lookup = lookup.value.clone();
+            let lookup = lookup.value;
+            let mut response = lookup.handle_request(req).await;
+            response.headers_mut().insert(
+                SERVER,
+                hyper::http::HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION")))
+                    .unwrap(),
+            );
 
-            return Ok(lookup.handle_request(req).await);
+            return Ok(response);
         }
         None => "unmatched :(",
-    };
-
-    Ok(Response::new(format!("{}\n", response).into()))
-}
-
-async fn old_condey_svc(
-    condey_service: Arc<CondeyService>,
-    req: Request<Body>,
-) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path().trim_end_matches('/');
-    let method = req.method();
-
-    let span = request_span(method, path);
-    let _ = span.enter();
-
-    let response = match condey_service
-        .routes
-        .get(req.method())
-        .and_then(|node| node.match_path(path).ok())
-    {
-        Some(matches) => matches
-            .params
-            .0
-            .into_iter()
-            .map(|param| format!("key=:{}, value={}", param.key, param.value))
-            .fold(
-                format!(
-                    "matched route: {} {}\nextracted parameters:\n",
-                    req.method(),
-                    path
-                ),
-                |mut acc, curr| {
-                    acc = format!("{}\n{}", acc, curr);
-                    acc
-                },
-            ),
-        None => "unmatched :(\n".to_string(),
     };
 
     Ok(Response::new(format!("{}\n", response).into()))

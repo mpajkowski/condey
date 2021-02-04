@@ -1,4 +1,4 @@
-use http::method::Method;
+use crate::http::method::Method;
 use std::fmt::Display;
 
 use super::handler::Handler;
