@@ -1,18 +1,20 @@
 use super::{handler::Handler, route::Route};
 use crate::http::{Method, Request, Response};
+use fnv::FnvHashMap as HashMap;
 use hyper::{
     header::SERVER,
+    server::conn::AddrIncoming,
     service::{make_service_fn, service_fn},
-    Body, Server,
+    Body, Server, StatusCode,
 };
-use matchit::Node;
+use route_recognizer::Router;
 use std::{
-    collections::HashMap,
     convert::{Infallible, TryFrom},
     sync::Arc,
 };
 use thiserror::Error;
 use tokio::net::{lookup_host, ToSocketAddrs};
+use tracing_futures::Instrument;
 
 #[derive(Debug, Error)]
 pub enum ServerError {
@@ -32,8 +34,8 @@ pub enum ServerError {
 fn request_span(method: &Method, path: &str) -> tracing::Span {
     let span = tracing::info_span!(
         "request",
-        req.method = ?method,
-        req.path = ?path
+        method = ?method,
+        path = ?path
     );
     tracing::info!(parent: &span, "received request");
     span
@@ -52,12 +54,14 @@ async fn condey_svc(
     let response = match condey_service
         .routes
         .get(req.method())
-        .and_then(|node| node.match_path(path).ok())
+        .and_then(|node| node.recognize(path).ok())
     {
         Some(lookup) => {
-            req.extensions_mut().insert(lookup.params);
-            let lookup = lookup.value;
-            let mut response = lookup.handle_request(req).await;
+            let params = lookup.params();
+            let handler = lookup.handler();
+
+            req.extensions_mut().insert(params.clone());
+            let mut response = handler.handle_request(req).instrument(span).await;
             response.headers_mut().insert(
                 SERVER,
                 hyper::http::HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION")))
@@ -66,10 +70,13 @@ async fn condey_svc(
 
             return Ok(response);
         }
-        None => "unmatched :(",
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap(),
     };
 
-    Ok(Response::new(format!("{}\n", response).into()))
+    Ok(response)
 }
 
 pub struct Condey {
@@ -108,14 +115,19 @@ impl Condey {
             }
         });
 
-        let server = Server::bind(&addr).serve(make_svc);
+        let mut incoming = AddrIncoming::bind(&addr)?;
+        incoming.set_nodelay(true);
+
+        let server = Server::builder(incoming)
+            .http1_pipeline_flush(true)
+            .serve(make_svc);
 
         server.await.map(|_| ()).map_err(ServerError::RuntimeError)
     }
 }
 
 struct CondeyService {
-    routes: HashMap<Method, Node<Box<dyn Handler + Send + Sync + 'static>>>,
+    routes: HashMap<Method, Router<Box<dyn Handler + Send + Sync + 'static>>>,
 }
 
 impl TryFrom<Condey> for CondeyService {
@@ -125,12 +137,12 @@ impl TryFrom<Condey> for CondeyService {
         // TODO: matchit should provide some Result<T,E> API
         let routes_unchecked = condey.routes;
         let routes = {
-            let mut routes: HashMap<_, Node<_>> = HashMap::new();
+            let mut routes: HashMap<_, Router<_>> = HashMap::default();
 
             routes_unchecked.into_iter().for_each(|route| {
                 tracing::info!("mounting route: {} {}", route.method, route.path);
                 let node = routes.entry(route.method).or_default();
-                node.insert(&route.path, route.handler);
+                node.add(&route.path, route.handler);
             });
 
             routes

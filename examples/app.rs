@@ -1,52 +1,79 @@
 use anyhow::Result;
-use condey::Route;
-use condey::{http::Method, Json};
-use condey::{Condey, Fn0, Fn1, Path};
-use serde::Serialize;
+use condey::{
+    http::Method,
+    types::{Json, Path},
+    Condey, Fn0, Fn1, Route,
+};
+use serde::{Deserialize, Serialize};
+use tracing::Level;
 
-async fn root_callback() -> String {
+async fn root() -> String {
     "Hello!".into()
 }
 
-async fn id_callback(Path((p1,)): Path<(String,)>) -> String {
+async fn employee_by_id(Path((p1,)): Path<(String,)>) -> String {
     format!("extracted: {}", p1)
 }
 
-async fn assignments_callback(Path((p1, p2)): Path<(String, String)>) -> String {
+async fn assignment_by_id(Path((p1, p2)): Path<(String, String)>) -> String {
     format!("extracted: {} and {}", p1, p2)
 }
 
-#[derive(Debug, Serialize)]
-pub struct SendMeJson {
-    foo: String,
-    bar: u32,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Album {
+    band: String,
+    name: String,
+    year: u32,
 }
 
-async fn send_me_json() -> Json<SendMeJson> {
-    Json(SendMeJson {
-        foo: "Foo".into(),
-        bar: 42,
-    })
+async fn crystal_logic() -> Json<Album> {
+    Album {
+        band: "Manilla Road".to_owned(),
+        name: "Crystal Logic".to_owned(),
+        year: 1983,
+    }
+    .into()
+}
+
+async fn thanks_for_album(album: Json<Album>) -> String {
+    let Album { band, name, year } = album.into_inner();
+
+    format!(r#"Thanks for "{}" by {} ({})!"#, name, band, year)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt().try_init().unwrap();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(Level::DEBUG)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let routes: Vec<Route> = vec![
-        Route::new(Method::GET, "/employees", Fn0::from(root_callback)),
-        Route::new(Method::GET, "/employees/:id", Fn1::from(id_callback)),
-        Route::new(
-            Method::GET,
-            "/employees/:id/assignments",
-            Fn1::from(id_callback),
-        ),
-        Route::new(
-            Method::GET,
-            "/employees/:id/assignments/:assignment_id",
-            Fn1::from(assignments_callback),
-        ),
-        Route::new(Method::GET, "/json_heaven", Fn0::from(send_me_json)),
+        Route::builder()
+            .method(Method::GET)
+            .path("/employees")
+            .with_handler(Fn0::from(root)),
+        Route::builder()
+            .method(Method::GET)
+            .path("/employees/:id")
+            .with_handler(Fn1::from(employee_by_id)),
+        Route::builder()
+            .method(Method::GET)
+            .path("/employees/:id/assignments")
+            .with_handler(Fn1::from(employee_by_id)),
+        Route::builder()
+            .method(Method::GET)
+            .path("/employees/:id/assignments/:assignment_id")
+            .with_handler(Fn1::from(assignment_by_id)),
+        Route::builder()
+            .method(Method::GET)
+            .path("/albums/stunner")
+            .with_handler(Fn0::from(crystal_logic)),
+        Route::builder()
+            .method(Method::POST)
+            .path("/albums")
+            .with_handler(Fn1::from(thanks_for_album)),
     ];
 
     Condey::init()

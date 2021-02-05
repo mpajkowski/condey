@@ -1,6 +1,9 @@
 use std::{future::Future, marker::PhantomData, pin::Pin};
 
-use super::{extract::Extract, Request, Responder};
+use super::extract::Extract;
+use super::request::Request;
+use super::response::Responder;
+
 use crate::http::Response as HttpResponse;
 use hyper::Body;
 
@@ -31,11 +34,11 @@ macro_rules! handler_for_async_fn {
             Fut: Future<Output = R> + Send + Sync + 'static,
         {
             #[allow(unused)]
-            fn handle_request(&self, request: Request) -> Pin<Box<dyn Future<Output = HttpResponse<Body>> + Send>> {
+            fn handle_request(&self, mut request: Request) -> Pin<Box<dyn Future<Output = HttpResponse<Body>> + Send>> {
                 let fun = self.function.clone();
                 Box::pin(async move {
                     $(
-                    let $p = $t::extract(&request).unwrap();
+                    let $p = $t::extract(&mut request).await.unwrap();
                     )*
 
                     let result = (fun)($($p,)*).await;
@@ -102,7 +105,7 @@ handler_for_async_fn!(
 
 #[cfg(test)]
 mod test {
-    use crate::{Handler, Path, Response};
+    use crate::{types::Path, Response};
 
     use super::*;
 
@@ -110,7 +113,7 @@ mod test {
 
     #[test]
     fn accept_handler_test() {
-        async fn foo(Path((p1,)): Path<(String,)>) -> Response {
+        async fn foo(Path((_p1,)): Path<(String,)>) -> Response {
             todo!()
         }
 
