@@ -29,6 +29,13 @@ impl Responder for String {
 }
 
 #[async_trait::async_trait]
+impl Responder for StatusCode {
+    async fn respond_to(self, _: &Request) -> Response {
+        Builder::new().status(self).body(Body::default()).unwrap()
+    }
+}
+
+#[async_trait::async_trait]
 impl Responder for Vec<u8> {
     async fn respond_to(self, _: &Request) -> Response {
         Builder::new()
@@ -39,5 +46,15 @@ impl Responder for Vec<u8> {
             )
             .body(self.into())
             .unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: Responder + Send> Responder for Option<T> {
+    async fn respond_to(self, req: &Request) -> Response {
+        match self {
+            Some(r) => r.respond_to(req).await,
+            None => StatusCode::NOT_FOUND.respond_to(req).await,
+        }
     }
 }

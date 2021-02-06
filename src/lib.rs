@@ -8,5 +8,6 @@ pub use self::core::param::{FromPathParam, FromPathParamError};
 pub use self::core::request::Request;
 pub use self::core::response::{Responder, Response};
 pub use self::core::route::Route;
+pub use self::core::state::State;
 
 pub use hyper::http;

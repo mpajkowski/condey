@@ -3,12 +3,14 @@ use crate::http::{Method, Request, Response};
 use fnv::FnvHashMap as HashMap;
 use hyper::{
     header::SERVER,
+    http::HeaderValue,
     server::conn::AddrIncoming,
     service::{make_service_fn, service_fn},
     Body, Server, StatusCode,
 };
 use route_recognizer::Router;
 use std::{
+    any::{Any, TypeId},
     convert::{Infallible, TryFrom},
     sync::Arc,
 };
@@ -45,30 +47,26 @@ async fn condey_svc(
     condey_service: Arc<CondeyService>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path().trim_end_matches('/');
+    let path = req.uri().path().trim_end_matches('/').to_string();
     let method = req.method();
 
-    let span = request_span(method, path);
+    let span = request_span(method, &path);
     let _ = span.enter();
 
-    let response = match condey_service
+    req.extensions_mut()
+        .insert(Arc::clone(&condey_service.states));
+
+    let mut response = match condey_service
         .routes
         .get(req.method())
-        .and_then(|node| node.recognize(path).ok())
+        .and_then(|node| node.recognize(&path).ok())
     {
         Some(lookup) => {
             let params = lookup.params();
             let handler = lookup.handler();
 
             req.extensions_mut().insert(params.clone());
-            let mut response = handler.handle_request(req).instrument(span).await;
-            response.headers_mut().insert(
-                SERVER,
-                hyper::http::HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION")))
-                    .unwrap(),
-            );
-
-            return Ok(response);
+            handler.handle_request(req).instrument(span).await
         }
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -76,16 +74,25 @@ async fn condey_svc(
             .unwrap(),
     };
 
+    response.headers_mut().insert(
+        SERVER,
+        HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION"))).unwrap(),
+    );
+
     Ok(response)
 }
 
 pub struct Condey {
     routes: Vec<Route>,
+    states: HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
 }
 
 impl Condey {
     pub fn init() -> Self {
-        Condey { routes: vec![] }
+        Condey {
+            routes: vec![],
+            states: HashMap::default(),
+        }
     }
 
     pub fn mount(mut self, prefix: &str, paths: Vec<Route>) -> Self {
@@ -93,6 +100,14 @@ impl Condey {
             route.path = format!("{}/{}", prefix, route.path.trim_start_matches('/'));
             self.routes.push(route);
         });
+
+        self
+    }
+
+    pub fn app_state<T: Any + Send + Sync + 'static>(mut self, state: T) -> Self {
+        let type_id = state.type_id();
+
+        self.states.insert(type_id, Box::new(state));
 
         self
     }
@@ -126,8 +141,11 @@ impl Condey {
     }
 }
 
+pub type StateMap = HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>;
+
 struct CondeyService {
     routes: HashMap<Method, Router<Box<dyn Handler + Send + Sync + 'static>>>,
+    states: Arc<StateMap>,
 }
 
 impl TryFrom<Condey> for CondeyService {
@@ -148,6 +166,9 @@ impl TryFrom<Condey> for CondeyService {
             routes
         };
 
-        Ok(Self { routes })
+        Ok(Self {
+            routes,
+            states: Arc::new(condey.states),
+        })
     }
 }
