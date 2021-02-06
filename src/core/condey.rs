@@ -144,7 +144,7 @@ impl Condey {
 pub type StateMap = HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>;
 
 struct CondeyService {
-    routes: HashMap<Method, Router<Box<dyn Handler + Send + Sync + 'static>>>,
+    routes: HashMap<Method, Router<Box<dyn Handler>>>,
     states: Arc<StateMap>,
 }
 

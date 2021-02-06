@@ -7,7 +7,7 @@ use super::response::Responder;
 use crate::http::Response as HttpResponse;
 use hyper::Body;
 
-pub trait Handler {
+pub trait Handler: Send + Sync + 'static {
     fn handle_request(
         &self,
         request: Request,

@@ -6,14 +6,14 @@ use super::handler::Handler;
 pub struct Route {
     pub(crate) method: Method,
     pub(crate) path: String,
-    pub(crate) handler: Box<dyn Handler + Send + Sync + 'static>,
+    pub(crate) handler: Box<dyn Handler>,
 }
 
 impl Route {
     pub fn new<P, H>(method: Method, path: P, handler: H) -> Self
     where
         P: Display,
-        H: Handler + Send + Sync + 'static,
+        H: Handler,
     {
         Route {
             method,
