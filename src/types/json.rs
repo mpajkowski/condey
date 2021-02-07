@@ -1,5 +1,5 @@
-use futures::stream::TryStreamExt;
-use hyper::{http::response::Builder, StatusCode};
+use futures::TryStreamExt;
+use hyper::{http::response::Builder, Body, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{http::header, Extract, Request, Responder, Response};
@@ -31,12 +31,11 @@ impl<T: Serialize + Send> Responder for Json<T> {
 
 #[async_trait::async_trait]
 impl<'r, T: DeserializeOwned> Extract<'r> for Json<T> {
-    async fn extract(request: &'r mut Request) -> anyhow::Result<Self>
+    async fn extract(_req: &'r Request, body: &mut Body) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
-        let body: Vec<u8> = request
-            .body_mut()
+        let body: Vec<u8> = body
             .map_ok(|chunk| chunk.into_iter().collect::<Vec<u8>>())
             .try_concat()
             .await?;
@@ -44,5 +43,9 @@ impl<'r, T: DeserializeOwned> Extract<'r> for Json<T> {
         let json = serde_json::from_slice(&*body)?;
 
         Ok(Json(json))
+    }
+
+    fn takes_body() -> bool {
+        true
     }
 }

@@ -4,7 +4,7 @@ use anyhow::Result;
 use condey::{
     http::Method,
     types::{Json, Path},
-    Condey, Fn1, Fn2, Fn3, Route, State,
+    Condey, Route, State,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -105,22 +105,22 @@ async fn main() -> Result<()> {
     let all = Route::builder()
         .method(Method::GET)
         .path("/albums")
-        .with_handler(Fn1::from(all));
+        .with_handler_fn(all);
 
     let get_by_id = Route::builder()
         .method(Method::GET)
         .path("/albums/:id")
-        .with_handler(Fn2::from(get_by_id));
+        .with_handler_fn(get_by_id);
 
     let create = Route::builder()
         .method(Method::POST)
         .path("/albums")
-        .with_handler(Fn2::from(create));
+        .with_handler_fn(create);
 
     let update = Route::builder()
         .method(Method::PUT)
         .path("/albums/:id")
-        .with_handler(Fn3::from(update));
+        .with_handler_fn(update);
 
     let albums = vec![
         Album::new(1, "Manilla Road", "Crystal Logic"),

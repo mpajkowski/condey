@@ -5,118 +5,101 @@ use super::request::Request;
 use super::response::Responder;
 
 use crate::http::Response as HttpResponse;
-use hyper::Body;
+use crate::Body;
 
 pub trait Handler: Send + Sync + 'static {
     fn handle_request(
         &self,
         request: Request,
-    ) -> Pin<Box<dyn Future<Output = HttpResponse<Body>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<HttpResponse<Body>, ()>> + Send>>;
+}
+
+#[derive(Clone, Copy)]
+pub struct HandlerFn<Fun, Fut> {
+    function: Fun,
+    _p: PhantomData<Fut>,
 }
 
 macro_rules! handler_for_async_fn {
-    ($f:ident, [$(($p:ident, $t:ident)),*]) => {
-        #[derive(Clone, Copy)]
-        pub struct $f<$($t,)* R, Fun, Fut>
-        {
-            function: Fun,
-            $(
-            $p: PhantomData<$t>,
-            )*
-            _r: PhantomData<R>,
-            _f: PhantomData<Fut>
-        }
-
-        impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* R, Fun, Fut > Handler for $f<$($t,)* R, Fun, Fut>
+    [$(($p:ident, $t:ident)),*] => {
+        impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* Fun, Fut > Handler for HandlerFn<Fun, (Fut, $($t,)*)>
         where
-            R: Responder + Send + Sync + 'static,
             Fun: Fn($($t),*) -> Fut + Send + Sync + Copy + 'static,
-            Fut: Future<Output = R> + Send + Sync + 'static,
+            Fut: Future + Send + Sync + 'static,
+            Fut::Output: Responder + Send + Sync + 'static
         {
             #[allow(unused)]
-            fn handle_request(&self, mut request: Request) -> Pin<Box<dyn Future<Output = HttpResponse<Body>> + Send>> {
-                let fun = self.function.clone();
+            fn handle_request(&self, mut request: Request) -> Pin<Box<dyn Future<Output = Result<HttpResponse<Body>, ()>> + Send>> {
+                let fun = self.function;
+                let mut body = std::mem::replace(request.body_mut(), Body::empty());
+                let mut body_taken = false;
                 Box::pin(async move {
                     $(
-                    let $p = $t::extract(&mut request).await.unwrap();
+                        if body_taken && $t::takes_body() {
+                            return Err(())
+                        }
+                        let $p = $t::extract(&request, &mut body).await.unwrap();
                     )*
 
                     let result = (fun)($($p,)*).await;
-                    result.respond_to(&request).await
+                    Ok(result.respond_to(&request).await)
                 })
             }
         }
 
-        impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* R, Fun, Fut> From<Fun> for $f<$($t,)* R, Fun, Fut>
+        impl<$($t: for<'r> Extract<'r> + Send + Sync + 'static,)* Fun, Fut> From<Fun> for HandlerFn<Fun, (Fut, $($t,)*)>
         where
-            R: Responder + Send + Sync + 'static,
-            Fun: Fn($($t),*) -> Fut + Copy + 'static,
-            Fut: Future<Output = R> + 'static {
+            Fun: Fn($($t),*) -> Fut + Send + Sync + Copy + 'static,
+            Fut: Future + Send + Sync + 'static,
+            Fut::Output: Responder + Send + Sync + 'static {
             fn from(fun: Fun) -> Self {
                 Self {
                     function: fun,
-                    _r: PhantomData,
-                    _f: PhantomData,
-                    $(
-                    $p: PhantomData,
-                    )*
+                    _p: PhantomData,
                 }
             }
         }
-
     };
 }
 
-handler_for_async_fn!(Fn0, []);
-handler_for_async_fn!(Fn1, [(e1, E1)]);
-handler_for_async_fn!(Fn2, [(e1, E1), (e2, E2)]);
-handler_for_async_fn!(Fn3, [(e1, E1), (e2, E2), (e3, E3)]);
-handler_for_async_fn!(Fn4, [(e1, E1), (e2, E2), (e3, E3), (e4, E4)]);
-handler_for_async_fn!(Fn5, [(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5)]);
-handler_for_async_fn!(
-    Fn6,
-    [(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5), (e6, E6)]
-);
-handler_for_async_fn!(
-    Fn7,
-    [
-        (e1, E1),
-        (e2, E2),
-        (e3, E3),
-        (e4, E4),
-        (e5, E5),
-        (e6, E6),
-        (e7, E7)
-    ]
-);
-handler_for_async_fn!(
-    Fn8,
-    [
-        (e1, E1),
-        (e2, E2),
-        (e3, E3),
-        (e4, E4),
-        (e5, E5),
-        (e6, E6),
-        (e7, E7),
-        (e8, E8)
-    ]
-);
+#[rustfmt::skip]
+mod impls {
+    use super::*;
+
+    handler_for_async_fn![];
+    handler_for_async_fn![(e1, E1)];
+    handler_for_async_fn![(e1, E1), (e2, E2)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3), (e4, E4)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5), (e6, E6)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5), (e6, E6), (e7, E7)];
+    handler_for_async_fn![(e1, E1), (e2, E2), (e3, E3), (e4, E4), (e5, E5), (e6, E6), (e7, E7), (e8, E8)];
+}
 
 #[cfg(test)]
 mod test {
-    use crate::{types::Path, Response};
+    use hyper::{Body, Request};
 
-    use super::*;
+    use crate::{types::Path, Handler, HandlerFn, Response};
 
-    fn accept_handler<H: Handler>(_: H) {}
+    async fn accept_handler<H, F, P>(h: H) -> Response
+    where
+        H: Into<HandlerFn<F, P>>,
+        HandlerFn<F, P>: Handler,
+    {
+        let h = h.into();
+        let req: Request<Body> = Request::new(Body::empty());
+        h.handle_request(req).await.unwrap()
+    }
 
-    #[test]
-    fn accept_handler_test() {
+    #[tokio::test]
+    async fn accept_handler_test() {
         async fn foo(Path((_p1,)): Path<(String,)>) -> Response {
-            todo!()
+            Response::new(Body::empty())
         }
 
-        accept_handler(Fn1::from(foo));
+        let response = accept_handler(foo).await;
+        println!("Response: {:?}", response);
     }
 }

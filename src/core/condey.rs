@@ -1,12 +1,15 @@
 use super::{handler::Handler, route::Route};
-use crate::http::{Method, Request, Response};
+use crate::{
+    http::{Method, Request, Response},
+    Body,
+};
 use fnv::FnvHashMap as HashMap;
 use hyper::{
     header::SERVER,
     http::HeaderValue,
     server::conn::AddrIncoming,
     service::{make_service_fn, service_fn},
-    Body, Server, StatusCode,
+    Server, StatusCode,
 };
 use route_recognizer::Router;
 use std::{
@@ -66,7 +69,13 @@ async fn condey_svc(
             let handler = lookup.handler();
 
             req.extensions_mut().insert(params.clone());
-            handler.handle_request(req).instrument(span).await
+            match handler.handle_request(req).instrument(span).await {
+                Ok(resp) => resp,
+                Err(()) => Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap(),
+            }
         }
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)

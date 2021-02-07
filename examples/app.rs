@@ -2,7 +2,7 @@ use anyhow::Result;
 use condey::{
     http::Method,
     types::{Json, Path},
-    Condey, Fn0, Fn1, Route,
+    Condey, Route,
 };
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -53,27 +53,27 @@ async fn main() -> Result<()> {
         Route::builder()
             .method(Method::GET)
             .path("/employees")
-            .with_handler(Fn0::from(root)),
+            .with_handler_fn(root),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id")
-            .with_handler(Fn1::from(employee_by_id)),
+            .with_handler_fn(employee_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id/assignments")
-            .with_handler(Fn1::from(employee_by_id)),
+            .with_handler_fn(employee_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id/assignments/:assignment_id")
-            .with_handler(Fn1::from(assignment_by_id)),
+            .with_handler_fn(assignment_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/albums/stunner")
-            .with_handler(Fn0::from(crystal_logic)),
+            .with_handler_fn(crystal_logic),
         Route::builder()
             .method(Method::POST)
             .path("/albums")
-            .with_handler(Fn1::from(thanks_for_album)),
+            .with_handler_fn(thanks_for_album),
     ];
 
     Condey::init()

@@ -1,4 +1,4 @@
-use crate::http::method::Method;
+use crate::{http::method::Method, HandlerFn};
 use std::{fmt::Display, marker::PhantomData};
 
 use super::handler::Handler;
@@ -73,7 +73,15 @@ impl RouteBuilder<AddPath> {
 }
 
 impl RouteBuilder<WithHandler> {
-    pub fn with_handler<H: Handler + Send + Sync + 'static>(self, handler: H) -> Route {
+    pub fn with_handler<H: Handler>(self, handler: H) -> Route {
         Route::new(self.method.unwrap(), self.path.unwrap(), handler)
+    }
+
+    pub fn with_handler_fn<H, F, P>(self, handler_fn: H) -> Route
+    where
+        H: Into<HandlerFn<F, P>>,
+        HandlerFn<F, P>: Handler,
+    {
+        Route::new(self.method.unwrap(), self.path.unwrap(), handler_fn.into())
     }
 }

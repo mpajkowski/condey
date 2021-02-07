@@ -1,5 +1,7 @@
 use std::any::{Any, TypeId};
 
+use crate::Body;
+
 use crate::{Extract, Request};
 
 use super::condey::StateMap;
@@ -14,7 +16,7 @@ impl<T: Clone + 'static> State<T> {
 
 #[async_trait::async_trait]
 impl<'r, T: Any + Clone + 'static> Extract<'r> for State<T> {
-    async fn extract(request: &'r mut Request) -> anyhow::Result<State<T>>
+    async fn extract(request: &'r Request, _: &mut Body) -> anyhow::Result<State<T>>
     where
         Self: Sized,
     {
