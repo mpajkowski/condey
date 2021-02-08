@@ -2,7 +2,8 @@ mod core;
 pub mod types;
 
 pub use self::core::condey::Condey;
-pub use self::core::extract::Extract;
+pub use self::core::from_body::FromBody;
+pub use self::core::from_request::FromRequest;
 pub use self::core::handler::{Handler, HandlerFn};
 pub use self::core::param::{FromPathParam, FromPathParamError};
 pub use self::core::request::Request;

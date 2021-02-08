@@ -3,6 +3,7 @@ use crate::{
     http::{Method, Request, Response},
     Body,
 };
+
 use fnv::FnvHashMap as HashMap;
 use hyper::{
     header::SERVER,
@@ -12,14 +13,15 @@ use hyper::{
     Server, StatusCode,
 };
 use route_recognizer::Router;
+use thiserror::Error;
+use tokio::net::{lookup_host, ToSocketAddrs};
+use tracing_futures::Instrument;
+
 use std::{
     any::{Any, TypeId},
     convert::{Infallible, TryFrom},
     sync::Arc,
 };
-use thiserror::Error;
-use tokio::net::{lookup_host, ToSocketAddrs};
-use tracing_futures::Instrument;
 
 #[derive(Debug, Error)]
 pub enum ServerError {
@@ -114,6 +116,7 @@ impl Condey {
     }
 
     pub fn app_state<T: Any + Send + Sync + 'static>(mut self, state: T) -> Self {
+        tracing::debug!("Registering state of type {}", std::any::type_name::<T>());
         let type_id = state.type_id();
 
         self.states.insert(type_id, Box::new(state));
@@ -150,11 +153,11 @@ impl Condey {
     }
 }
 
-pub type StateMap = HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>;
+pub type StateMap = Arc<HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>>;
 
 struct CondeyService {
     routes: HashMap<Method, Router<Box<dyn Handler>>>,
-    states: Arc<StateMap>,
+    states: StateMap,
 }
 
 impl TryFrom<Condey> for CondeyService {

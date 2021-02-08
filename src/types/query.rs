@@ -1,8 +1,8 @@
-use futures::TryStreamExt;
-use serde::{de::DeserializeOwned, Serialize};
+use crate::{Body, FromRequest, Request};
 
-use crate::{Body, Extract, Request, Responder, Response};
-use hyper::{header, http::response::Builder, StatusCode};
+use serde::de::DeserializeOwned;
+
+use std::ops::{Deref, DerefMut};
 
 pub struct Query<T>(T);
 
@@ -18,9 +18,23 @@ impl<T> Query<T> {
     }
 }
 
+impl<T> Deref for Query<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Query<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[async_trait::async_trait]
-impl<'r, T: DeserializeOwned> Extract<'r> for Query<T> {
-    async fn extract(req: &'r Request, _body: &mut Body) -> anyhow::Result<Self>
+impl<'r, T: DeserializeOwned> FromRequest<'r> for Query<T> {
+    async fn from_request(req: &'r Request) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -48,7 +62,7 @@ mod test {
         let uri = request.uri_mut();
         *uri = "/test?bread=baguette&cheese=comte".parse().unwrap();
 
-        let extracted: Foo = Query::extract(&request, &mut Body::empty())
+        let extracted = Query::<Foo>::from_request(&request)
             .await
             .unwrap()
             .into_inner();
@@ -68,7 +82,7 @@ mod test {
         let uri = request.uri_mut();
         *uri = "/test".parse().unwrap();
 
-        let extracted: Foo = Query::extract(&request, &mut Body::empty())
+        let extracted = Query::<Foo>::from_request(&request)
             .await
             .unwrap()
             .into_inner();

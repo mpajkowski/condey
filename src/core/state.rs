@@ -1,10 +1,8 @@
-use std::any::{Any, TypeId};
-
-use crate::Body;
-
-use crate::{Extract, Request};
-
 use super::condey::StateMap;
+use crate::Request;
+use crate::{Body, FromRequest};
+
+use std::any::{type_name, Any, TypeId};
 
 pub struct State<T: Clone + 'static>(T);
 
@@ -15,12 +13,14 @@ impl<T: Clone + 'static> State<T> {
 }
 
 #[async_trait::async_trait]
-impl<'r, T: Any + Clone + 'static> Extract<'r> for State<T> {
-    async fn extract(request: &'r Request, _: &mut Body) -> anyhow::Result<State<T>>
+impl<'r, T: Any + Clone + 'static> FromRequest<'r> for State<T> {
+    async fn from_request(request: &'r Request) -> anyhow::Result<State<T>>
     where
         Self: Sized,
     {
         let type_id = TypeId::of::<T>();
+
+        println!("state map: {:?}", request.extensions().get::<StateMap>());
 
         let state = request
             .extensions()
@@ -28,7 +28,7 @@ impl<'r, T: Any + Clone + 'static> Extract<'r> for State<T> {
             .and_then(|state_map| state_map.get(&type_id))
             .and_then(|state| state.downcast_ref::<T>())
             .cloned()
-            .unwrap();
+            .unwrap_or_else(|| panic!("type of {} is not managed by Condey!", type_name::<T>()));
 
         Ok(State(state))
     }

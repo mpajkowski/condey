@@ -1,8 +1,10 @@
+use crate::{Body, FromBody, Request, Responder, Response};
+
 use futures::TryStreamExt;
+use hyper::{header, http::response::Builder, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{Body, Extract, Request, Responder, Response};
-use hyper::{header, http::response::Builder, StatusCode};
+use std::ops::{Deref, DerefMut};
 
 pub struct Form<T>(T);
 
@@ -18,6 +20,20 @@ impl<T> Form<T> {
     }
 }
 
+impl<T> Deref for Form<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Form<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[async_trait::async_trait]
 impl<T: Serialize + Send> Responder for Form<T> {
     async fn respond_to(self, _: &Request) -> Response {
@@ -30,8 +46,8 @@ impl<T: Serialize + Send> Responder for Form<T> {
 }
 
 #[async_trait::async_trait]
-impl<'r, T: DeserializeOwned> Extract<'r> for Form<T> {
-    async fn extract(_req: &'r Request, body: &mut Body) -> anyhow::Result<Self>
+impl<T: DeserializeOwned> FromBody for Form<T> {
+    async fn from_body(_req: &Request, body: &mut Body) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -43,10 +59,6 @@ impl<'r, T: DeserializeOwned> Extract<'r> for Form<T> {
         let form = serde_urlencoded::from_bytes(&*body)?;
 
         Ok(Form(form))
-    }
-
-    fn takes_body() -> bool {
-        true
     }
 }
 
@@ -66,7 +78,7 @@ mod test {
         let mut body = Body::from("bread=baguette&cheese=comt%C3%A9");
         let request = Request::new(Body::empty());
 
-        let extracted: Foo = Form::extract(&request, &mut body)
+        let extracted = Form::<Foo>::from_body(&request, &mut body)
             .await
             .unwrap()
             .into_inner();
@@ -85,7 +97,7 @@ mod test {
         let mut body = Body::from("");
         let request = Request::new(Body::empty());
 
-        let extracted: Foo = Form::extract(&request, &mut body)
+        let extracted = Form::<Foo>::from_body(&request, &mut body)
             .await
             .unwrap()
             .into_inner();

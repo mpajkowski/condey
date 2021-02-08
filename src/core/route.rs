@@ -1,7 +1,7 @@
-use crate::{http::method::Method, HandlerFn};
-use std::{fmt::Display, marker::PhantomData};
-
 use super::handler::Handler;
+use crate::{http::method::Method, HandlerFn};
+
+use std::{fmt::Display, marker::PhantomData};
 
 pub struct Route {
     pub(crate) method: Method,

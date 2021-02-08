@@ -1,6 +1,8 @@
-use crate::{Body, Extract, FromPathParam, Request};
-use anyhow::Result;
+use crate::{FromPathParam, FromRequest, Request};
 use route_recognizer::Params;
+
+use anyhow::Result;
+
 use std::fmt::Debug;
 
 pub struct Path<T>(pub T);
@@ -8,15 +10,13 @@ pub struct Path<T>(pub T);
 macro_rules! extract_for_path {
     [$(($t:ident, $v:ident)),*] => {
         #[async_trait::async_trait]
-        impl<'r, $($t,)*> Extract<'r> for Path<($($t,)*)>
+        impl<'r, $($t,)*> FromRequest<'r> for Path<($($t,)*)>
         where
             $(
             $t: FromPathParam + Debug,
             )*
         {
-            async fn extract(request: &'r Request, _: &mut Body) -> Result<Self>
-            where
-                Self: Sized,
+            async fn from_request(request: &'r Request) -> Result<Self>
             {
                 let params = request.extensions().get::<Params>().unwrap();
                 let mut iter = params.iter();
@@ -51,6 +51,9 @@ mod impls {
 
 #[cfg(test)]
 mod test {
+    /*
+    use crate::core::extract::Extract;
+
     use super::*;
 
     fn assert_extract<'r>(_: impl Extract<'r>) {}
@@ -60,4 +63,5 @@ mod test {
         let p1 = Path(("test".to_string(),));
         assert_extract(p1);
     }
+    */
 }

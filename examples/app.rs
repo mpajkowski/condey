@@ -1,9 +1,10 @@
-use anyhow::Result;
 use condey::{
     http::Method,
     types::{Json, Path},
     Condey, Route,
 };
+
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 
