@@ -1,9 +1,8 @@
-use crate::{http::header, FromBody, Request, Responder, Response};
+use crate::{http::header, FromBody, Interceptor, Request, Responder, Response};
 
-use futures::TryStreamExt;
-use hyper::{http::response::Builder, Body, StatusCode};
+use hyper::{http::response::Builder, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
-use thiserror::Error;
+use serde_json::error::Category;
 
 use std::ops::{Deref, DerefMut};
 
@@ -35,15 +34,6 @@ impl<T> DerefMut for Json<T> {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ParseJsonError {
-    #[error("IO error occurred while parsing a form: `{0}`")]
-    Io(#[from] hyper::Error),
-
-    #[error("Deserialization error occurred while parsing a json body: `{0}`")]
-    Deserialize(#[from] serde_json::Error),
-}
-
 #[async_trait::async_trait]
 impl<T: Serialize + Send + Sync> Responder for Json<T> {
     async fn respond_to(self, _: &Request) -> Response {
@@ -57,16 +47,47 @@ impl<T: Serialize + Send + Sync> Responder for Json<T> {
 
 #[async_trait::async_trait]
 impl<'r, T: DeserializeOwned> FromBody<'r> for Json<T> {
-    type Error = ParseJsonError;
+    type Error = serde_json::Error;
 
-    async fn from_body(_req: &'r Request, body: &'r mut Body) -> Result<Self, Self::Error> {
-        let body: Vec<u8> = body
-            .map_ok(|chunk| chunk.into_iter().collect::<Vec<u8>>())
-            .try_concat()
-            .await?;
-
-        let json = serde_json::from_slice(&*body)?;
+    async fn from_body(_req: &'r Request, body: &'r [u8]) -> Result<Self, Self::Error> {
+        let json = serde_json::from_slice(body)?;
 
         Ok(Json(json))
+    }
+
+    fn default_interceptor() -> Box<dyn Interceptor> {
+        Box::new(JsonInterceptor)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct JsonInterceptor;
+
+#[async_trait::async_trait]
+impl Interceptor for JsonInterceptor {
+    async fn intercept(&self, _req: Request, body: Vec<u8>, err: anyhow::Error) -> Response {
+        let err = err.downcast_ref::<serde_json::Error>().unwrap();
+
+        let resp = serde_json::json!({
+            "original_request": String::from_utf8_lossy(&*body).to_string(),
+            "error_class": match err.classify() {
+                Category::Io => "IO",
+                Category::Syntax => "SYNTAX",
+                Category::Data => "DATA",
+                Category::Eof => "EOF",
+            },
+            "line": err.line(),
+            "column": err.column(),
+        });
+
+        Builder::new()
+            .status(if matches!(err.classify(), Category::Data) {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::BAD_REQUEST
+            })
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(serde_json::to_vec(&resp).unwrap().into())
+            .unwrap()
     }
 }

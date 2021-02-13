@@ -1,9 +1,10 @@
 use super::extract::{Extract, ExtractClass};
 use super::request::Request;
 use super::response::Responder;
-
 use crate::http::Response as HttpResponse;
 use crate::Body;
+
+use futures::TryStreamExt;
 
 use std::{future::Future, marker::PhantomData, pin::Pin};
 
@@ -33,17 +34,25 @@ macro_rules! handler_for_async_fn {
                 let fun = self.function;
                 let mut body = std::mem::replace(request.body_mut(), Body::empty());
                 let mut body_taken = false;
+
                 Box::pin(async move {
+                    let body: Vec<u8> = body
+                        .map_ok(|chunk| chunk.into_iter().collect::<Vec<u8>>())
+                        .try_concat()
+                        .await.unwrap();
+
                     $(
                         if body_taken && $t::TAKES_BODY {
                             return Err(())
                         }
-                        let $p = match $t::extract(&request, &mut body).await {
+
+
+                        let $p = match $t::extract(&request, &body).await {
                             Ok(param) => param,
                             Err(error) => {
                                 tracing::error!("{}", error);
-                                let responder = dyn_clone::clone_box(&*$t::default_interceptor());
-                                let response = responder.respond_to(&request).await;
+                                let interceptor = dyn_clone::clone_box(&*$t::default_interceptor());
+                                let response = interceptor.intercept(request, body, error).await;
                                 return Ok(response)
                             }
                         };

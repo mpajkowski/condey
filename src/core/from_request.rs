@@ -26,7 +26,7 @@ where
     Self: 'r,
 {
     #[inline(always)]
-    async fn extract(request: &'r Request, _: &'r mut hyper::Body) -> anyhow::Result<Self> {
+    async fn extract(request: &'r Request, _: &'r [u8]) -> anyhow::Result<Self> {
         T::from_request(request).await.map_err(|err| err.into())
     }
 

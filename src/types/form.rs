@@ -1,6 +1,5 @@
-use crate::{Body, FromBody, Request, Responder, Response};
+use crate::{FromBody, Request, Responder, Response};
 
-use futures::TryStreamExt;
 use hyper::{header, http::response::Builder, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
@@ -59,16 +58,11 @@ impl<T: Serialize + Send + Sync> Responder for Form<T> {
 impl<'r, T: DeserializeOwned> FromBody<'r> for Form<T> {
     type Error = ParseFormError;
 
-    async fn from_body(_req: &'r Request, body: &'r mut Body) -> Result<Self, Self::Error>
+    async fn from_body(_req: &'r Request, body: &'r [u8]) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let body: Vec<u8> = body
-            .map_ok(|chunk| chunk.into_iter().collect::<Vec<u8>>())
-            .try_concat()
-            .await?;
-
-        let form = serde_urlencoded::from_bytes(&*body)?;
+        let form = serde_urlencoded::from_bytes(body)?;
 
         Ok(Form(form))
     }
@@ -77,6 +71,7 @@ impl<'r, T: DeserializeOwned> FromBody<'r> for Form<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use hyper::Body;
     use serde::Deserialize;
 
     #[tokio::test]
@@ -87,10 +82,10 @@ mod test {
             cheese: String,
         }
 
-        let mut body = Body::from("bread=baguette&cheese=comt%C3%A9");
+        let body = b"bread=baguette&cheese=comt%C3%A9".to_vec();
         let request = Request::new(Body::empty());
 
-        let extracted = Form::<Foo>::from_body(&request, &mut body)
+        let extracted = Form::<Foo>::from_body(&request, &body)
             .await
             .unwrap()
             .into_inner();
@@ -106,10 +101,9 @@ mod test {
             cheese: Option<String>,
         }
 
-        let mut body = Body::from("");
         let request = Request::new(Body::empty());
 
-        let extracted = Form::<Foo>::from_body(&request, &mut body)
+        let extracted = Form::<Foo>::from_body(&request, &[])
             .await
             .unwrap()
             .into_inner();
