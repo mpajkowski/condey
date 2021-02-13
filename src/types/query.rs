@@ -1,4 +1,4 @@
-use crate::{Body, FromRequest, Request};
+use crate::{FromRequest, Request};
 
 use serde::de::DeserializeOwned;
 
@@ -34,7 +34,9 @@ impl<T> DerefMut for Query<T> {
 
 #[async_trait::async_trait]
 impl<'r, T: DeserializeOwned> FromRequest<'r> for Query<T> {
-    async fn from_request(req: &'r Request) -> anyhow::Result<Self>
+    type Error = serde_urlencoded::de::Error;
+
+    async fn from_request(req: &'r Request) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -48,6 +50,7 @@ impl<'r, T: DeserializeOwned> FromRequest<'r> for Query<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use hyper::Body;
     use serde::Deserialize;
 
     #[tokio::test]

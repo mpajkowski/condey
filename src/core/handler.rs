@@ -35,10 +35,18 @@ macro_rules! handler_for_async_fn {
                 let mut body_taken = false;
                 Box::pin(async move {
                     $(
-                        if body_taken && $t::takes_body() {
+                        if body_taken && $t::TAKES_BODY {
                             return Err(())
                         }
-                        let $p = $t::extract(&request, &mut body).await.unwrap();
+                        let $p = match $t::extract(&request, &mut body).await {
+                            Ok(param) => param,
+                            Err(error) => {
+                                tracing::error!("{}", error);
+                                let responder = dyn_clone::clone_box(&*$t::default_interceptor());
+                                let response = responder.respond_to(&request).await;
+                                return Ok(response)
+                            }
+                        };
                     )*
 
                     let result = (fun)($($p,)*).await;
@@ -100,7 +108,7 @@ mod test {
             Response::new(Body::empty())
         }
 
-        //let response = accept_handler(foo).await;
-        //println!("Response: {:?}", response);
+        let response = accept_handler(foo).await;
+        println!("Response: {:?}", response);
     }
 }

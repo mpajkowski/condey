@@ -1,12 +1,13 @@
 use super::handler::Handler;
 use crate::{http::method::Method, HandlerFn};
 
-use std::{fmt::Display, marker::PhantomData};
+use std::{fmt::Display, marker::PhantomData, sync::Arc};
 
+#[derive(Clone)]
 pub struct Route {
     pub(crate) method: Method,
     pub(crate) path: String,
-    pub(crate) handler: Box<dyn Handler>,
+    pub(crate) handler: Arc<dyn Handler>,
 }
 
 impl Route {
@@ -18,7 +19,7 @@ impl Route {
         Route {
             method,
             path: path.to_string(),
-            handler: Box::new(handler),
+            handler: Arc::new(handler),
         }
     }
 
@@ -38,9 +39,9 @@ pub struct WithHandler;
 impl RouteBuilderState for WithHandler {}
 
 pub struct RouteBuilder<T: RouteBuilderState> {
-    method: Option<Method>,
-    path: Option<String>,
-    state: PhantomData<T>,
+    pub(crate) method: Option<Method>,
+    pub(crate) path: Option<String>,
+    pub(crate) state: PhantomData<T>,
 }
 
 impl<T: RouteBuilderState> Default for RouteBuilder<T> {

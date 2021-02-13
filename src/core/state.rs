@@ -1,6 +1,9 @@
 use super::condey::StateMap;
-use crate::Request;
-use crate::{Body, FromRequest};
+use crate::FromRequest;
+use crate::{Interceptor, Request};
+
+use anyhow::anyhow;
+use hyper::StatusCode;
 
 use std::any::{type_name, Any, TypeId};
 
@@ -14,13 +17,10 @@ impl<T: Clone + 'static> State<T> {
 
 #[async_trait::async_trait]
 impl<'r, T: Any + Clone + 'static> FromRequest<'r> for State<T> {
-    async fn from_request(request: &'r Request) -> anyhow::Result<State<T>>
-    where
-        Self: Sized,
-    {
-        let type_id = TypeId::of::<T>();
+    type Error = anyhow::Error;
 
-        println!("state map: {:?}", request.extensions().get::<StateMap>());
+    async fn from_request(request: &'r Request) -> Result<State<T>, Self::Error> {
+        let type_id = TypeId::of::<T>();
 
         let state = request
             .extensions()
@@ -28,8 +28,12 @@ impl<'r, T: Any + Clone + 'static> FromRequest<'r> for State<T> {
             .and_then(|state_map| state_map.get(&type_id))
             .and_then(|state| state.downcast_ref::<T>())
             .cloned()
-            .unwrap_or_else(|| panic!("type of {} is not managed by Condey!", type_name::<T>()));
+            .ok_or_else(|| anyhow!("type of {} is not managed by Condey!", type_name::<T>()))?;
 
         Ok(State(state))
+    }
+
+    fn default_interceptor() -> Box<dyn Interceptor> {
+        Box::new(StatusCode::INTERNAL_SERVER_ERROR)
     }
 }

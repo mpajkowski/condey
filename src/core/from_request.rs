@@ -1,31 +1,50 @@
-use crate::Request;
+use std::convert::Infallible;
 
-use anyhow::Result;
+use hyper::StatusCode;
+
+use crate::{Interceptor, Request};
 
 use super::extract::{Extract, ExtractClass};
 
 #[async_trait::async_trait]
 pub trait FromRequest<'r> {
-    async fn from_request(request: &'r Request) -> Result<Self>
+    type Error: Into<anyhow::Error> + 'static;
+
+    async fn from_request(request: &'r Request) -> Result<Self, Self::Error>
     where
-        Self: Sized;
+        Self: Sized + 'r;
+
+    fn default_interceptor() -> Box<dyn Interceptor> {
+        Box::new(StatusCode::NOT_FOUND)
+    }
 }
 
 #[async_trait::async_trait]
-impl<'r, T> Extract<'r, ExtractRequest> for T
+impl<'r, T, E: Into<anyhow::Error> + 'static> Extract<'r, ExtractRequest> for T
 where
-    T: FromRequest<'r>,
+    T: FromRequest<'r, Error = E>,
+    Self: 'r,
 {
     #[inline(always)]
     async fn extract(request: &'r Request, _: &'r mut hyper::Body) -> anyhow::Result<Self> {
-        T::from_request(request).await
+        T::from_request(request).await.map_err(|err| err.into())
     }
 
-    #[inline(always)]
-    fn takes_body() -> bool {
-        false
+    const TAKES_BODY: bool = false;
+
+    fn default_interceptor() -> Box<dyn Interceptor> {
+        T::default_interceptor()
     }
 }
 
 pub struct ExtractRequest;
 impl ExtractClass for ExtractRequest {}
+
+#[async_trait::async_trait]
+impl<'r> FromRequest<'r> for &'r Request {
+    type Error = Infallible;
+
+    async fn from_request(request: &'r Request) -> Result<Self, Self::Error> {
+        Ok(request)
+    }
+}

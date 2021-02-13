@@ -1,11 +1,19 @@
-use crate::{FromPathParam, FromRequest, Request};
-use route_recognizer::Params;
+use crate::{Interceptor, FromPathParam, FromRequest, Request};
 
 use anyhow::Result;
+use hyper::StatusCode;
+use route_recognizer::Params;
+use thiserror::Error;
 
 use std::fmt::Debug;
 
 pub struct Path<T>(pub T);
+
+#[derive(Debug, Error)]
+pub enum PathExtractError {
+    #[error("Exhausted path iterator")]
+    ExhaustedPathIterator,
+}
 
 macro_rules! extract_for_path {
     [$(($t:ident, $v:ident)),*] => {
@@ -16,18 +24,24 @@ macro_rules! extract_for_path {
             $t: FromPathParam + Debug,
             )*
         {
-            async fn from_request(request: &'r Request) -> Result<Self>
+            type Error = PathExtractError;
+
+            async fn from_request(request: &'r Request) -> Result<Self, Self::Error>
             {
                 let params = request.extensions().get::<Params>().unwrap();
                 let mut iter = params.iter();
 
                 $(
-                    let param = iter.next().unwrap().1;
-                    let $v = $t::from_path_param(param).unwrap();
+                    let (_dyn_segment, value) = iter.next().ok_or(PathExtractError::ExhaustedPathIterator)?;
+                    let $v = $t::from_path_param(value).unwrap();
                     tracing::debug!("Extracted param {:?}", $v);
                 )*
 
                 Ok(Path(($($v,)*)))
+            }
+
+            fn default_interceptor() -> Box<dyn Interceptor> {
+                Box::new(StatusCode::INTERNAL_SERVER_ERROR)
             }
         }
     };

@@ -3,6 +3,7 @@ use crate::{Body, FromBody, Request, Responder, Response};
 use futures::TryStreamExt;
 use hyper::{header, http::response::Builder, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
+use thiserror::Error;
 
 use std::ops::{Deref, DerefMut};
 
@@ -34,8 +35,17 @@ impl<T> DerefMut for Form<T> {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ParseFormError {
+    #[error("IO error occurred while parsing a form: `{0}`")]
+    Io(#[from] hyper::Error),
+
+    #[error("Deserialization error occurred while parsing a form: `{0}`")]
+    Deserialize(#[from] serde_urlencoded::de::Error),
+}
+
 #[async_trait::async_trait]
-impl<T: Serialize + Send> Responder for Form<T> {
+impl<T: Serialize + Send + Sync> Responder for Form<T> {
     async fn respond_to(self, _: &Request) -> Response {
         Builder::new()
             .status(StatusCode::OK)
@@ -46,8 +56,10 @@ impl<T: Serialize + Send> Responder for Form<T> {
 }
 
 #[async_trait::async_trait]
-impl<T: DeserializeOwned> FromBody for Form<T> {
-    async fn from_body(_req: &Request, body: &mut Body) -> anyhow::Result<Self>
+impl<'r, T: DeserializeOwned> FromBody<'r> for Form<T> {
+    type Error = ParseFormError;
+
+    async fn from_body(_req: &'r Request, body: &'r mut Body) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {

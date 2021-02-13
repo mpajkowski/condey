@@ -14,7 +14,10 @@ use hyper::{
 };
 use route_recognizer::Router;
 use thiserror::Error;
-use tokio::net::{lookup_host, ToSocketAddrs};
+use tokio::{
+    net::{lookup_host, ToSocketAddrs},
+    time::Instant,
+};
 use tracing_futures::Instrument;
 
 use std::{
@@ -48,51 +51,6 @@ fn request_span(method: &Method, path: &str) -> tracing::Span {
     span
 }
 
-async fn condey_svc(
-    condey_service: Arc<CondeyService>,
-    mut req: Request<Body>,
-) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path().trim_end_matches('/').to_string();
-    let method = req.method();
-
-    let span = request_span(method, &path);
-    let _ = span.enter();
-
-    req.extensions_mut()
-        .insert(Arc::clone(&condey_service.states));
-
-    let mut response = match condey_service
-        .routes
-        .get(req.method())
-        .and_then(|node| node.recognize(&path).ok())
-    {
-        Some(lookup) => {
-            let params = lookup.params();
-            let handler = lookup.handler();
-
-            req.extensions_mut().insert(params.clone());
-            match handler.handle_request(req).instrument(span).await {
-                Ok(resp) => resp,
-                Err(()) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap(),
-            }
-        }
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
-            .unwrap(),
-    };
-
-    response.headers_mut().insert(
-        SERVER,
-        HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION"))).unwrap(),
-    );
-
-    Ok(response)
-}
-
 pub struct Condey {
     routes: Vec<Route>,
     states: HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
@@ -109,13 +67,20 @@ impl Condey {
     pub fn mount(mut self, prefix: &str, paths: Vec<Route>) -> Self {
         paths.into_iter().for_each(|mut route| {
             route.path = format!("{}/{}", prefix, route.path.trim_start_matches('/'));
+
+            if route.method == Method::GET {
+                let mut route_head = route.clone();
+                route_head.method = Method::HEAD;
+                self.routes.push(route_head);
+            }
+
             self.routes.push(route);
         });
 
         self
     }
 
-    pub fn app_state<T: Any + Send + Sync + 'static>(mut self, state: T) -> Self {
+    pub fn app_state<T: Any + Clone + Send + Sync + 'static>(mut self, state: T) -> Self {
         tracing::debug!("Registering state of type {}", std::any::type_name::<T>());
         let type_id = state.type_id();
 
@@ -138,7 +103,7 @@ impl Condey {
 
             async move {
                 // service_fn converts our function into a `Service`
-                Ok::<_, Infallible>(service_fn(move |req| condey_svc(condey.clone(), req)))
+                Ok::<_, Infallible>(service_fn(move |req| condey.clone().handle_request(req)))
             }
         });
 
@@ -156,8 +121,77 @@ impl Condey {
 pub type StateMap = Arc<HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>>;
 
 struct CondeyService {
-    routes: HashMap<Method, Router<Box<dyn Handler>>>,
+    routes: HashMap<Method, Router<Arc<dyn Handler>>>,
     states: StateMap,
+}
+
+impl CondeyService {
+    async fn handle_request(
+        self: Arc<Self>,
+        mut req: Request<Body>,
+    ) -> Result<Response<Body>, Infallible> {
+        let timer = Instant::now();
+        let path = req.uri().path().trim_end_matches('/').to_string();
+        let method = req.method();
+
+        let span = request_span(method, &path);
+        let _ = span.enter();
+
+        req.extensions_mut().insert(Arc::clone(&self.states));
+
+        let mut response = match self
+            .routes
+            .get(req.method())
+            .and_then(|node| node.recognize(&path).ok())
+        {
+            Some(lookup) => {
+                let params = lookup.params();
+                let handler = lookup.handler();
+
+                req.extensions_mut().insert(params.clone());
+                match handler.handle_request(req).instrument(span).await {
+                    Ok(resp) => resp,
+                    Err(()) => Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::empty())
+                        .unwrap(),
+                }
+            }
+            None => self.not_found_or_method_not_allowed(&path),
+        };
+
+        response.headers_mut().insert(
+            SERVER,
+            HeaderValue::try_from(format!("condey {}", env!("CARGO_PKG_VERSION"))).unwrap(),
+        );
+
+        tracing::info!(
+            "status: {}, operation took: {:?}",
+            response.status(),
+            timer.elapsed()
+        );
+
+        Ok(response)
+    }
+
+    fn not_found_or_method_not_allowed(self: Arc<Self>, path: &str) -> Response<Body> {
+        let status = if self
+            .routes
+            .iter()
+            .filter(|(_, router)| router.recognize(path).ok().is_some())
+            .count()
+            != 0
+        {
+            StatusCode::METHOD_NOT_ALLOWED
+        } else {
+            StatusCode::NOT_FOUND
+        };
+
+        Response::builder()
+            .status(status)
+            .body(Body::empty())
+            .unwrap()
+    }
 }
 
 impl TryFrom<Condey> for CondeyService {
@@ -170,9 +204,13 @@ impl TryFrom<Condey> for CondeyService {
             let mut routes: HashMap<_, Router<_>> = HashMap::default();
 
             routes_unchecked.into_iter().for_each(|route| {
-                tracing::info!("mounting route: {} {}", route.method, route.path);
-                let node = routes.entry(route.method).or_default();
-                node.add(&route.path, route.handler);
+                let path = route.path;
+                let method = route.method;
+                let handler = route.handler;
+                tracing::info!("mounting route: {} {}", method, path);
+
+                let node = routes.entry(method).or_default();
+                node.add(&path, handler);
             });
 
             routes

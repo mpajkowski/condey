@@ -4,13 +4,9 @@ version = "0.1.0"
 authors = ["Marcin Pajkowski <marcin.pajkowski@gmail.com>"]
 edition = "2018"
 
-[[example]]
-name = "app"
-path = "examples/app.rs"
-
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-hyper = { version = "0.14", features = ["full"] }
+tokio = { version = "1", features = ["time"] }
+hyper = { version = "0.14", features = ["server", "stream", "http1", "tcp"] }
 futures = "0.3"
 route-recognizer = "0.3"
 percent-encoding = "2.1"
@@ -23,9 +19,9 @@ serde = "1"
 serde_json = "1"
 fnv = "1"
 serde_urlencoded = "0.7"
+dyn-clone = "1"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
 tracing-subscriber = "0.2"
-
-[dev-dependencies.serde]
-features = ["derive"]

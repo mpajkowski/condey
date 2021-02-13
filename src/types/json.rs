@@ -3,6 +3,7 @@ use crate::{http::header, FromBody, Request, Responder, Response};
 use futures::TryStreamExt;
 use hyper::{http::response::Builder, Body, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
+use thiserror::Error;
 
 use std::ops::{Deref, DerefMut};
 
@@ -34,8 +35,17 @@ impl<T> DerefMut for Json<T> {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ParseJsonError {
+    #[error("IO error occurred while parsing a form: `{0}`")]
+    Io(#[from] hyper::Error),
+
+    #[error("Deserialization error occurred while parsing a json body: `{0}`")]
+    Deserialize(#[from] serde_json::Error),
+}
+
 #[async_trait::async_trait]
-impl<T: Serialize + Send> Responder for Json<T> {
+impl<T: Serialize + Send + Sync> Responder for Json<T> {
     async fn respond_to(self, _: &Request) -> Response {
         Builder::new()
             .status(StatusCode::OK)
@@ -46,8 +56,10 @@ impl<T: Serialize + Send> Responder for Json<T> {
 }
 
 #[async_trait::async_trait]
-impl<T: DeserializeOwned> FromBody for Json<T> {
-    async fn from_body(_req: &Request, body: &mut Body) -> anyhow::Result<Self> {
+impl<'r, T: DeserializeOwned> FromBody<'r> for Json<T> {
+    type Error = ParseJsonError;
+
+    async fn from_body(_req: &'r Request, body: &'r mut Body) -> Result<Self, Self::Error> {
         let body: Vec<u8> = body
             .map_ok(|chunk| chunk.into_iter().collect::<Vec<u8>>())
             .try_concat()
