@@ -1,21 +1,14 @@
 use crate::http::{response::Builder, Response as HttpResponse};
-use hyper::{Body, StatusCode};
-
 use crate::Request;
 
+use hyper::{Body, StatusCode};
+
 #[async_trait::async_trait]
-pub trait Responder {
+pub trait Responder: Send + Sync {
     async fn respond_to(self, req: &Request) -> Response;
 }
 
 pub type Response = HttpResponse<Body>;
-
-#[async_trait::async_trait]
-impl Responder for Response {
-    async fn respond_to(self, _: &Request) -> Response {
-        self
-    }
-}
 
 #[async_trait::async_trait]
 impl Responder for String {
@@ -25,6 +18,13 @@ impl Responder for String {
             .header(crate::http::header::CONTENT_TYPE, "text/plain")
             .body(self.into())
             .unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+impl Responder for Response {
+    async fn respond_to(self, _: &Request) -> Response {
+        self
     }
 }
 
@@ -55,6 +55,20 @@ impl<T: Responder + Send> Responder for Option<T> {
         match self {
             Some(r) => r.respond_to(req).await,
             None => StatusCode::NOT_FOUND.respond_to(req).await,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<T, E> Responder for Result<T, E>
+where
+    T: Responder + Send,
+    E: Responder + Send,
+{
+    async fn respond_to(self, req: &Request) -> Response {
+        match self {
+            Ok(ok) => ok.respond_to(req).await,
+            Err(err) => err.respond_to(req).await,
         }
     }
 }

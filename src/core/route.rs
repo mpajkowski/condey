@@ -1,12 +1,13 @@
-use crate::http::method::Method;
-use std::{fmt::Display, marker::PhantomData};
-
 use super::handler::Handler;
+use crate::{http::method::Method, HandlerFn};
 
+use std::{fmt::Display, marker::PhantomData, sync::Arc};
+
+#[derive(Clone)]
 pub struct Route {
     pub(crate) method: Method,
     pub(crate) path: String,
-    pub(crate) handler: Box<dyn Handler>,
+    pub(crate) handler: Arc<dyn Handler>,
 }
 
 impl Route {
@@ -18,7 +19,7 @@ impl Route {
         Route {
             method,
             path: path.to_string(),
-            handler: Box::new(handler),
+            handler: Arc::new(handler),
         }
     }
 
@@ -38,9 +39,9 @@ pub struct WithHandler;
 impl RouteBuilderState for WithHandler {}
 
 pub struct RouteBuilder<T: RouteBuilderState> {
-    method: Option<Method>,
-    path: Option<String>,
-    state: PhantomData<T>,
+    pub(crate) method: Option<Method>,
+    pub(crate) path: Option<String>,
+    pub(crate) state: PhantomData<T>,
 }
 
 impl<T: RouteBuilderState> Default for RouteBuilder<T> {
@@ -73,7 +74,15 @@ impl RouteBuilder<AddPath> {
 }
 
 impl RouteBuilder<WithHandler> {
-    pub fn with_handler<H: Handler + Send + Sync + 'static>(self, handler: H) -> Route {
+    pub fn with_handler<H: Handler>(self, handler: H) -> Route {
         Route::new(self.method.unwrap(), self.path.unwrap(), handler)
+    }
+
+    pub fn with_handler_fn<H, F, P>(self, handler_fn: H) -> Route
+    where
+        H: Into<HandlerFn<F, P>>,
+        HandlerFn<F, P>: Handler,
+    {
+        Route::new(self.method.unwrap(), self.path.unwrap(), handler_fn.into())
     }
 }

@@ -1,9 +1,10 @@
 use anyhow::anyhow;
+use thiserror::Error;
+
 use std::{
     fmt::{Debug, Display},
     str::{FromStr, Utf8Error},
 };
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum FromPathParamError {

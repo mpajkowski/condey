@@ -1,8 +1,5 @@
 use anyhow::Result;
-use condey::{
-    http::Method,
-    Condey, Fn0, Route,
-};
+use condey::{http::Method, Condey, Route};
 
 async fn hello() -> String {
     "Hello, World!".into()
@@ -18,11 +15,11 @@ async fn main() -> Result<()> {
         Route::builder()
             .method(Method::GET)
             .path("/hello")
-            .with_handler(Fn0::from(hello)),
+            .with_handler_fn(hello),
         Route::builder()
             .method(Method::GET)
             .path("/another")
-            .with_handler(Fn0::from(another)),
+            .with_handler_fn(another),
     ];
 
     Condey::init()
