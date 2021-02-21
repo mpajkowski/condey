@@ -1,7 +1,7 @@
 use condey::{
-    http::Method,
+    http::{Method, StatusCode},
     types::{Json, Path, Query},
-    Condey, Route, State,
+    Condey, JsonSchema, OpenApiGenerator, Route, State,
 };
 
 use anyhow::Result;
@@ -11,7 +11,7 @@ use tracing::Level;
 
 use std::{fmt::Display, sync::Arc};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, JsonSchema)]
 pub struct Album {
     id: i32,
     band: String,
@@ -61,10 +61,13 @@ async fn main() -> Result<()> {
 
     tracing::subscriber::set_global_default(subscriber)?;
 
+    let mut gen = OpenApiGenerator::new();
+
     let all = Route::builder()
         .method(Method::GET)
         .path("/albums")
-        .with_handler_fn(
+        .handler_fn_and_openapi(
+            &mut gen,
             |query: Query<AlbumQuery>, db: State<Arc<Database>>| async move {
                 let albums = db.inner().albums.lock().await;
 
@@ -94,7 +97,8 @@ async fn main() -> Result<()> {
     let get_by_id = Route::builder()
         .method(Method::GET)
         .path("/albums/:id")
-        .with_handler_fn(
+        .handler_fn_and_openapi(
+            &mut gen,
             |Path((id,)): Path<(i32,)>, db: State<Arc<Database>>| async move {
                 let albums = db.inner().albums.lock().await;
 
@@ -109,7 +113,8 @@ async fn main() -> Result<()> {
     let create = Route::builder()
         .method(Method::POST)
         .path("/albums")
-        .with_handler_fn(
+        .handler_fn_and_openapi(
+            &mut gen,
             |new: Json<AlbumWritable>, db: State<Arc<Database>>| async move {
                 let new = new.into_inner();
                 let mut albums = db.inner().albums.lock().await;
@@ -132,7 +137,8 @@ async fn main() -> Result<()> {
         Route::builder()
             .method(Method::PUT)
             .path("/albums/:id")
-            .with_handler_fn(
+            .handler_fn_and_openapi(
+                &mut gen,
                 |Path((id,)): Path<(i32,)>,
                  db: State<Arc<Database>>,
                  updated: Json<AlbumWritable>| async move {
@@ -147,6 +153,26 @@ async fn main() -> Result<()> {
                 },
             );
 
+    let delete = Route::builder()
+        .method(Method::DELETE)
+        .path("/albums/:id")
+        .handler_fn_and_openapi(
+            &mut gen,
+            |Path((id,)): Path<(i32,)>, db: State<Arc<Database>>| async move {
+                let mut albums = db.inner().albums.lock().await;
+
+                let len = albums.len();
+                albums.retain(|album| album.id != id);
+                let new_len = albums.len();
+
+                if new_len - len == 0 {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::NO_CONTENT
+                }
+            },
+        );
+
     let albums = vec![
         Album::new(1, "Manilla Road", "Crystal Logic"),
         Album::new(2, "Cirith Ungol", "Frost And Fire"),
@@ -157,8 +183,8 @@ async fn main() -> Result<()> {
 
     let database = Database::with_sample_data(albums);
 
-    Condey::init()
-        .mount("/api", vec![all, get_by_id, create, update])
+    Condey::init(gen)
+        .mount("/api", vec![all, get_by_id, create, update, delete])
         .app_state(Arc::new(database))
         .listen_at("127.0.0.1:3000")
         .await?;

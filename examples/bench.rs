@@ -15,11 +15,11 @@ async fn main() -> Result<()> {
         Route::builder()
             .method(Method::GET)
             .path("/hello")
-            .with_handler_fn(hello),
+            .handler_fn(hello),
         Route::builder()
             .method(Method::GET)
             .path("/another")
-            .with_handler_fn(another),
+            .handler_fn(another),
     ];
 
     Condey::init()

@@ -16,18 +16,19 @@ pub trait Handler: Send + Sync + 'static {
 }
 
 #[derive(Clone, Copy)]
-pub struct HandlerFn<Fun, Fut> {
+pub struct HandlerFn<Fun, Fut, R> {
     function: Fun,
     _p: PhantomData<Fut>,
+    _r: PhantomData<R>,
 }
 
 macro_rules! handler_for_async_fn {
     [$(($eclass: ident, $p:ident, $t:ident)),*] => {
-        impl<$($eclass: ExtractClass,)* $($t: for<'r> Extract<'r, $eclass> + Send + Sync + 'static,)* Fun, Fut > Handler for HandlerFn<Fun, ($($eclass,)* Fut, $($t,)*)>
+        impl<$($eclass: ExtractClass,)* $($t: for<'r> Extract<'r, $eclass> + Send + Sync + 'static,)* Fun, Fut, R> Handler for HandlerFn<Fun, ($($eclass,)* Fut, $($t,)*), R>
         where
             Fun: Fn($($t),*) -> Fut + Send + Sync + Copy + 'static,
-            Fut: Future + Send + Sync + 'static,
-            Fut::Output: Responder + Send + Sync + 'static
+            R: Responder + Send + Sync + 'static,
+            Fut: Future<Output = R> + Send + Sync + 'static,
         {
             #[allow(unused)]
             fn handle_request(&self, mut request: Request) -> Pin<Box<dyn Future<Output = Result<HttpResponse<Body>, ()>> + Send>> {
@@ -64,15 +65,16 @@ macro_rules! handler_for_async_fn {
             }
         }
 
-        impl<$($eclass: ExtractClass,)* $($t: for<'r> Extract<'r, $eclass> + Send + Sync + 'static,)* Fun, Fut> From<Fun> for HandlerFn<Fun, ($($eclass,)* Fut, $($t,)*)>
+        impl<$($eclass: ExtractClass,)* $($t: for<'r> Extract<'r, $eclass> + Send + Sync + 'static,)* Fun, Fut, R> From<Fun> for HandlerFn<Fun, ($($eclass,)* Fut, $($t,)*), R>
         where
             Fun: Fn($($t),*) -> Fut + Send + Sync + Copy + 'static,
-            Fut: Future + Send + Sync + 'static,
-            Fut::Output: Responder + Send + Sync + 'static {
+            R: Responder + Send + Sync + 'static,
+            Fut: Future<Output = R> + Send + Sync + 'static {
             fn from(fun: Fun) -> Self {
                 Self {
                     function: fun,
                     _p: PhantomData,
+                    _r: PhantomData,
                 }
             }
         }
@@ -100,10 +102,10 @@ mod test {
 
     use crate::{Handler, HandlerFn, Response};
 
-    async fn accept_handler<H, F, P>(h: H) -> Response
+    async fn accept_handler<H, F, P, R>(h: H) -> Response
     where
-        H: Into<HandlerFn<F, P>>,
-        HandlerFn<F, P>: Handler,
+        H: Into<HandlerFn<F, P, R>>,
+        HandlerFn<F, P, R>: Handler,
     {
         let h = h.into();
         let mut req: Request<Body> = Request::new(Body::empty());

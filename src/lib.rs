@@ -1,4 +1,5 @@
 mod core;
+pub mod openapi;
 pub mod types;
 
 pub use self::core::condey::Condey;
@@ -12,6 +13,10 @@ pub use self::core::response::{Responder, Response};
 pub use self::core::route::Route;
 pub use self::core::state::State;
 
+pub use self::openapi::generator::{OpenApiGenerator, OpenApiResponse};
+
 pub use hyper;
 pub use hyper::http;
 pub use hyper::Body;
+
+pub use schemars::JsonSchema;

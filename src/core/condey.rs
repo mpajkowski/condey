@@ -1,7 +1,7 @@
 use super::{handler::Handler, route::Route};
 use crate::{
     http::{Method, Request, Response},
-    Body,
+    Body, OpenApiGenerator,
 };
 
 use fnv::FnvHashMap as HashMap;
@@ -13,6 +13,7 @@ use hyper::{
     Server, StatusCode,
 };
 use route_recognizer::Router;
+use serde_json::to_string_pretty;
 use thiserror::Error;
 use tokio::{
     net::{lookup_host, ToSocketAddrs},
@@ -54,13 +55,15 @@ fn request_span(method: &Method, path: &str) -> tracing::Span {
 pub struct Condey {
     routes: Vec<Route>,
     states: HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
+    gen: OpenApiGenerator,
 }
 
 impl Condey {
-    pub fn init() -> Self {
+    pub fn init(gen: OpenApiGenerator) -> Self {
         Condey {
             routes: vec![],
             states: HashMap::default(),
+            gen,
         }
     }
 
@@ -74,6 +77,7 @@ impl Condey {
                 self.routes.push(route_head);
             }
 
+            self.gen.feed(route.clone());
             self.routes.push(route);
         });
 
@@ -198,6 +202,11 @@ impl TryFrom<Condey> for CondeyService {
     type Error = ServerError;
 
     fn try_from(condey: Condey) -> Result<Self, Self::Error> {
+        let spec = condey.gen.into_spec();
+
+        let spec = serde_json::to_string_pretty(&spec).unwrap();
+
+        println!("\nOPENAPI SPEC: {}\n", spec);
         // TODO: matchit should provide some Result<T,E> API
         let routes_unchecked = condey.routes;
         let routes = {

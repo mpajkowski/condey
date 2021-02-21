@@ -1,5 +1,9 @@
 use super::handler::Handler;
-use crate::{http::method::Method, HandlerFn};
+use crate::{
+    http::method::Method,
+    openapi::generator::{OpenApiGenerator, OpenApiResponder},
+    HandlerFn, OpenApiResponse,
+};
 
 use std::{fmt::Display, marker::PhantomData, sync::Arc};
 
@@ -7,19 +11,28 @@ use std::{fmt::Display, marker::PhantomData, sync::Arc};
 pub struct Route {
     pub(crate) method: Method,
     pub(crate) path: String,
+    pub(crate) description: Option<String>,
     pub(crate) handler: Arc<dyn Handler>,
+    pub(crate) open_api_responses: Vec<OpenApiResponse>,
 }
 
 impl Route {
-    pub fn new<P, H>(method: Method, path: P, handler: H) -> Self
+    pub fn new<H>(
+        method: Method,
+        path: String,
+        description: Option<String>,
+        handler: H,
+        open_api_responses: Vec<OpenApiResponse>,
+    ) -> Self
     where
-        P: Display,
         H: Handler,
     {
         Route {
             method,
-            path: path.to_string(),
+            path,
+            description,
             handler: Arc::new(handler),
+            open_api_responses,
         }
     }
 
@@ -41,6 +54,7 @@ impl RouteBuilderState for WithHandler {}
 pub struct RouteBuilder<T: RouteBuilderState> {
     pub(crate) method: Option<Method>,
     pub(crate) path: Option<String>,
+    pub(crate) description: Option<String>,
     pub(crate) state: PhantomData<T>,
 }
 
@@ -49,12 +63,20 @@ impl<T: RouteBuilderState> Default for RouteBuilder<T> {
         RouteBuilder {
             method: None,
             path: None,
+            description: None,
             state: PhantomData,
         }
     }
 }
 
 impl RouteBuilder<AddMethod> {
+    pub fn description<S: Display>(self, description: S) -> RouteBuilder<AddMethod> {
+        RouteBuilder {
+            description: Some(description.to_string()),
+            ..Default::default()
+        }
+    }
+
     pub fn method(self, method: Method) -> RouteBuilder<AddPath> {
         RouteBuilder {
             method: Some(method),
@@ -74,15 +96,46 @@ impl RouteBuilder<AddPath> {
 }
 
 impl RouteBuilder<WithHandler> {
-    pub fn with_handler<H: Handler>(self, handler: H) -> Route {
-        Route::new(self.method.unwrap(), self.path.unwrap(), handler)
+    pub fn handler<H: Handler>(self, handler: H) -> Route {
+        Route::new(
+            self.method.unwrap(),
+            self.path.unwrap(),
+            self.description,
+            handler,
+            vec![],
+        )
     }
 
-    pub fn with_handler_fn<H, F, P>(self, handler_fn: H) -> Route
+    pub fn handler_fn<H, F, P, R>(self, handler_fn: H) -> Route
     where
-        H: Into<HandlerFn<F, P>>,
-        HandlerFn<F, P>: Handler,
+        H: Into<HandlerFn<F, P, R>>,
+        HandlerFn<F, P, R>: Handler,
     {
-        Route::new(self.method.unwrap(), self.path.unwrap(), handler_fn.into())
+        Route::new(
+            self.method.unwrap(),
+            self.path.unwrap(),
+            self.description,
+            handler_fn.into(),
+            vec![],
+        )
+    }
+
+    pub fn handler_fn_and_openapi<H, F, P, R>(
+        self,
+        gen: &mut OpenApiGenerator,
+        handler_fn: H,
+    ) -> Route
+    where
+        R: OpenApiResponder,
+        H: Into<HandlerFn<F, P, R>>,
+        HandlerFn<F, P, R>: Handler,
+    {
+        Route::new(
+            self.method.unwrap(),
+            self.path.unwrap(),
+            self.description,
+            handler_fn.into(),
+            R::open_api_responses(gen),
+        )
     }
 }

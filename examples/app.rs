@@ -5,6 +5,7 @@ use condey::{
 };
 
 use anyhow::Result;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 
@@ -20,7 +21,7 @@ async fn assignment_by_id(Path((p1, p2)): Path<(String, String)>) -> String {
     format!("extracted: {} and {}", p1, p2)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct Album {
     band: String,
     name: String,
@@ -54,27 +55,27 @@ async fn main() -> Result<()> {
         Route::builder()
             .method(Method::GET)
             .path("/employees")
-            .with_handler_fn(root),
+            .handler_fn(root),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id")
-            .with_handler_fn(employee_by_id),
+            .handler_fn(employee_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id/assignments")
-            .with_handler_fn(employee_by_id),
+            .handler_fn(employee_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/employees/:id/assignments/:assignment_id")
-            .with_handler_fn(assignment_by_id),
+            .handler_fn(assignment_by_id),
         Route::builder()
             .method(Method::GET)
             .path("/albums/stunner")
-            .with_handler_fn(crystal_logic),
+            .handler_fn(crystal_logic),
         Route::builder()
             .method(Method::POST)
             .path("/albums")
-            .with_handler_fn(thanks_for_album),
+            .handler_fn(thanks_for_album),
     ];
 
     Condey::init()

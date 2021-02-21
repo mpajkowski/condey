@@ -20,6 +20,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 fnv = "1"
 serde_urlencoded = "0.7"
 dyn-clone = "1"
+schemars = { version = "0.8", features = ["preserve_order"] }
+okapi = { git = "https://github.com/mateuszkj/okapi", branch = "async2" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
