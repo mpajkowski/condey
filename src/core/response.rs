@@ -1,12 +1,14 @@
+mod adapters;
+mod status;
+mod traits;
+
 use crate::http::{response::Builder, Response as HttpResponse};
 use crate::Request;
 
 use hyper::{Body, StatusCode};
 
-#[async_trait::async_trait]
-pub trait Responder: Send + Sync {
-    async fn respond_to(self, req: &Request) -> Response;
-}
+pub use adapters::*;
+pub use traits::Responder;
 
 pub type Response = HttpResponse<Body>;
 

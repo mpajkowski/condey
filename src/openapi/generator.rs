@@ -144,14 +144,18 @@ impl OpenApiGenerator {
         for (path, node) in self.operations.into_iter() {
             let mut path_item = PathItem::default();
             for (method, operation) in node.into_iter() {
-                match method {
-                    Method::GET => path_item.get = Some(operation),
-                    Method::POST => path_item.post = Some(operation),
-                    Method::PUT => path_item.put = Some(operation),
-                    Method::DELETE => path_item.delete = Some(operation),
-                    Method::PATCH => path_item.patch = Some(operation),
+                let method_entry = match method {
+                    Method::GET => &mut path_item.get,
+                    Method::POST => &mut path_item.post,
+                    Method::PUT => &mut path_item.put,
+                    Method::DELETE => &mut path_item.delete,
+                    Method::PATCH => &mut path_item.patch,
+                    Method::HEAD => &mut path_item.head,
+                    Method::OPTIONS => &mut path_item.options,
+                    Method::TRACE => &mut path_item.trace,
                     _ => continue,
-                }
+                };
+                *method_entry = Some(operation);
             }
             paths.insert(path, path_item);
         }

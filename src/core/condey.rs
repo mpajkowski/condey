@@ -13,7 +13,6 @@ use hyper::{
     Server, StatusCode,
 };
 use route_recognizer::Router;
-use serde_json::to_string_pretty;
 use thiserror::Error;
 use tokio::{
     net::{lookup_host, ToSocketAddrs},
@@ -178,7 +177,7 @@ impl CondeyService {
         Ok(response)
     }
 
-    fn not_found_or_method_not_allowed(self: Arc<Self>, path: &str) -> Response<Body> {
+    fn not_found_or_method_not_allowed(&self, path: &str) -> Response<Body> {
         let status = if self
             .routes
             .iter()

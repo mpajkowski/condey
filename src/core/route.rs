@@ -5,7 +5,7 @@ use crate::{
     HandlerFn, OpenApiResponse,
 };
 
-use std::{fmt::Display, marker::PhantomData, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 #[derive(Clone)]
 pub struct Route {
@@ -36,66 +36,50 @@ impl Route {
         }
     }
 
-    pub fn builder() -> RouteBuilder<AddMethod> {
+    pub fn builder() -> RouteBuilder {
         RouteBuilder::default()
     }
 }
 
-pub trait RouteBuilderState {}
-pub struct AddMethod;
-impl RouteBuilderState for AddMethod {}
-
-pub struct AddPath;
-impl RouteBuilderState for AddPath {}
-
-pub struct WithHandler;
-impl RouteBuilderState for WithHandler {}
-
-pub struct RouteBuilder<T: RouteBuilderState> {
+pub struct RouteBuilder {
     pub(crate) method: Option<Method>,
     pub(crate) path: Option<String>,
     pub(crate) description: Option<String>,
-    pub(crate) state: PhantomData<T>,
 }
 
-impl<T: RouteBuilderState> Default for RouteBuilder<T> {
-    fn default() -> RouteBuilder<T> {
+impl Default for RouteBuilder {
+    fn default() -> RouteBuilder {
         RouteBuilder {
             method: None,
             path: None,
             description: None,
-            state: PhantomData,
         }
     }
 }
 
-impl RouteBuilder<AddMethod> {
-    pub fn description<S: Display>(self, description: S) -> RouteBuilder<AddMethod> {
+impl RouteBuilder {
+    pub fn description<S: Display>(self, description: S) -> Self {
         RouteBuilder {
             description: Some(description.to_string()),
             ..Default::default()
         }
     }
 
-    pub fn method(self, method: Method) -> RouteBuilder<AddPath> {
+    pub fn method(self, method: Method) -> Self {
         RouteBuilder {
             method: Some(method),
             ..Default::default()
         }
     }
-}
 
-impl RouteBuilder<AddPath> {
-    pub fn path<S: Display>(self, path: S) -> RouteBuilder<WithHandler> {
+    pub fn path<S: Display>(self, path: S) -> Self {
         RouteBuilder {
             method: self.method,
             path: Some(path.to_string()),
             ..Default::default()
         }
     }
-}
 
-impl RouteBuilder<WithHandler> {
     pub fn handler<H: Handler>(self, handler: H) -> Route {
         Route::new(
             self.method.unwrap(),

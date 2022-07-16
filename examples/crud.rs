@@ -165,10 +165,10 @@ async fn main() -> Result<()> {
                 albums.retain(|album| album.id != id);
                 let new_len = albums.len();
 
-                if new_len - len == 0 {
-                    StatusCode::NOT_FOUND
-                } else {
+                if new_len < len {
                     StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::NOT_FOUND
                 }
             },
         );
